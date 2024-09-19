@@ -174,6 +174,7 @@ enum EventKey {
     utilities_horizontalBars,
     utilities_showRegressionLine,
     utilities_viewLimitValues,
+    utilities_compareSamples, // testing - event key to enable sample comparison
     sortByMedian,
 }
 
@@ -384,6 +385,11 @@ export type PlotsTabGeneOption = {
     label: string; // hugo symbol
 };
 
+// testing - Represents the sample IDs for each patient ID
+export type SampleIdsForPatientIds = {
+    [patientId: string]: string[];
+};
+
 const searchInputTimeoutMs = 600;
 
 class PlotsTabScatterPlot extends ScatterPlot<IScatterPlotData> {}
@@ -452,6 +458,8 @@ export default class PlotsTab extends React.Component<IPlotsTabProps, {}> {
     @observable percentageBar = false;
     @observable stackedBar = false;
     @observable viewLimitValues: boolean = true;
+    // testing
+    @observable compareSamples: boolean = false; // an observable boolean for comparing samples - initialize to false
     @observable _waterfallPlotSortOrder: string | undefined = undefined;
 
     @observable searchCase: string = '';
@@ -512,6 +520,69 @@ export default class PlotsTab extends React.Component<IPlotsTabProps, {}> {
                 !this.coloringMenuSelection.colorByStructuralVariant
             );
         }
+    }
+
+    // testing
+    // Return an array of the patient IDs of the data points in the box plot - will use as an identifier for each line
+    @computed get patientIdsInBoxPlot(): string[] {
+        let patientIds: string[] = [];
+
+        // Step 1: when box plot is rendered, collect the patient IDs of the data points
+        if (this.boxPlotData.isComplete && this.boxPlotData.result) {
+            // collect unique sample keys from the box plot data
+            const uniqueSampleKeys = _.flatten(
+                _.map(this.boxPlotData.result.data, dataPoint =>
+                    _.map(dataPoint.data, point => point.uniqueSampleKey)
+                )
+            );
+
+            // map unique sample keys to sample objects and extract patient IDs
+            patientIds = _.uniq(
+                uniqueSampleKeys
+                    .map(
+                        sampleKey =>
+                            this.props.sampleKeyToSample.result![sampleKey]
+                                ?.patientId
+                    )
+                    .filter(Boolean)
+            );
+        }
+        return patientIds;
+    }
+
+    // testing
+    // Step 2: Using the computed patient IDs, get the sample IDs associated with each patient ID
+    @computed get samplesForEachPatient(): SampleIdsForPatientIds[] {
+        const samplesForPatients: SampleIdsForPatientIds[] = [];
+
+        // for each patient ID in the box plot, get the sample IDs for that patient
+        // initialize an object with the patient ID as the key and an empty array as the value
+        if (this.patientIdsInBoxPlot && this.patientIdsInBoxPlot.length > 0) {
+            this.patientIdsInBoxPlot.forEach(patientId => {
+                const sampleIdsForPatient: SampleIdsForPatientIds = {
+                    [patientId]: [],
+                };
+
+                this.boxPlotData.result?.data.forEach(dataPoint => {
+                    dataPoint.data.forEach(point => {
+                        const sample = this.props.sampleKeyToSample.result![
+                            point.uniqueSampleKey
+                        ];
+                        if (sample && sample.patientId === patientId) {
+                            sampleIdsForPatient[patientId].push(point.sampleId);
+                        }
+                    });
+                });
+                samplesForPatients.push(sampleIdsForPatient);
+            });
+        }
+        // if atleast one patient has multiple samples, return the array of sample IDs for each patient, otherwise []
+        const hasPatientWithMultipleSamples = samplesForPatients.some(
+            patientObject =>
+                patientObject[Object.keys(patientObject)[0]].length > 1
+        );
+
+        return hasPatientWithMultipleSamples ? samplesForPatients : [];
     }
 
     // determine whether formatting for points in the scatter plot (based on
@@ -1715,6 +1786,9 @@ export default class PlotsTab extends React.Component<IPlotsTabProps, {}> {
                 break;
             case EventKey.utilities_viewLimitValues:
                 this.viewLimitValues = !this.viewLimitValues;
+                break;
+            case EventKey.utilities_compareSamples: // testing
+                this.compareSamples = !this.compareSamples;
                 break;
             case EventKey.sortByMedian:
                 this.boxPlotSortByMedian = !this.boxPlotSortByMedian;
@@ -4375,6 +4449,11 @@ export default class PlotsTab extends React.Component<IPlotsTabProps, {}> {
         const showRegression =
             this.plotType.isComplete &&
             this.plotType.result === PlotType.ScatterPlot;
+        // testing
+        const showCompareSamples =
+            this.plotType.isComplete &&
+            this.plotType.result == PlotType.BoxPlot &&
+            this.samplesForEachPatient.length > 0;
         if (
             !showSearchOptions &&
             !showSampleColoringOptions &&
@@ -4414,6 +4493,20 @@ export default class PlotsTab extends React.Component<IPlotsTabProps, {}> {
                                     )}
                                 </div>
                             )}
+                        </div>
+                    )}
+                    {showCompareSamples && (
+                        <div className="checkbox" style={{ marginTop: 14 }}>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    name="utilities_compareSamples"
+                                    value={EventKey.utilities_compareSamples}
+                                    checked={this.compareSamples}
+                                    onClick={this.onInputClick}
+                                />{' '}
+                                Compare samples from the same patient
+                            </label>
                         </div>
                     )}
                     {showDiscreteVsDiscreteOption && (
@@ -5594,6 +5687,11 @@ export default class PlotsTab extends React.Component<IPlotsTabProps, {}> {
                                         LEGEND_TO_BOTTOM_WIDTH_THRESHOLD
                                     }
                                     legendTitle={this.legendTitle}
+                                    // testing
+                                    renderLinePlot={this.compareSamples} // render line plot if checkbox is checked
+                                    samplesForPatients={
+                                        this.samplesForEachPatient
+                                    }
                                 />
                             );
                             break;
