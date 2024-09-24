@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { observer, Observer } from 'mobx-react';
-import { computed, observable, action, makeObservable } from 'mobx';
+import { computed, observable, action, makeObservable, set } from 'mobx';
 import { bind } from 'bind-decorator';
 import ifNotDefined from '../../lib/ifNotDefined';
 import { calculateBoxPlotModel } from '../../lib/boxPlotUtils';
@@ -50,6 +50,7 @@ export interface IBaseBoxScatterPlotPoint {
     value: number;
     jitter?: number; // between -1 and 1
     sampleId: string; // testing
+    lineHovered?: boolean; // testing
 }
 
 export interface IBoxScatterPlotData<D extends IBaseBoxScatterPlotPoint> {
@@ -147,8 +148,9 @@ export default class BoxScatterPlot<
     @observable.ref private boxPlotTooltipModel: any | null;
     @observable private mousePosition = { x: 0, y: 0 };
     // testing
-    @observable lineHovered: boolean = false;
     @observable visibleLines = new Map();
+    @observable removingLines: boolean = false;
+    @observable lineHovered: boolean = false;
 
     private scatterPlotTooltipHelper: ScatterPlotTooltipHelper = new ScatterPlotTooltipHelper();
 
@@ -534,7 +536,8 @@ export default class BoxScatterPlot<
         }
     }
 
-    @computed get scatterPlotSize() {
+    @computed get scatterPlotSize() { // called whenever getChart is called (so when page refreshed and when box checked/unchecked)
+        console.log("scatterPlotSize in BSP");
         const highlight = this.props.highlight;
         const size = this.props.size;
         // need to regenerate this function whenever highlight changes in order to trigger immediate Victory rerender
@@ -670,10 +673,11 @@ export default class BoxScatterPlot<
         );
     }
 
+    // testing
     @computed get scatterPlotData() {
         let dataAxis: 'x' | 'y' = this.props.horizontal ? 'x' : 'y';
         let categoryAxis: 'x' | 'y' = this.props.horizontal ? 'y' : 'x';
-        const data: (D & { x: number; y: number })[] = [];
+        const data: (D & { x: number; y: number; lineHovered: boolean })[] = [];
         for (let i = 0; i < this.props.data.length; i++) {
             const categoryCoord = this.categoryCoord(i);
             for (const d of this.props.data[i].data) {
@@ -681,7 +685,8 @@ export default class BoxScatterPlot<
                     Object.assign({}, d, {
                         [dataAxis]: d.value,
                         [categoryAxis]: categoryCoord,
-                    } as { x: number; y: number })
+                        lineHovered: false,
+                    } as { x: number; y: number; lineHovered: boolean })
                 );
             }
         }
@@ -800,7 +805,6 @@ export default class BoxScatterPlot<
 
     // testing - function called everytime page refreshes
     @computed get patientLinePlotData() {
-        console.log('enters here');
         const patientDataForLinePlot: { [patientId: string]: any[] } = {};
 
         if (this.props.renderLinePlot && this.props.samplesForPatients) {
@@ -813,40 +817,80 @@ export default class BoxScatterPlot<
                     this.scatterPlotData.forEach(datawithAppearance => {
                         datawithAppearance.data.forEach(sampleArray => {
                             if (sampleIds.includes(sampleArray.sampleId)) {
-                                patientDataForLinePlot[patientId].push(
-                                    sampleArray
-                                );
+                                patientDataForLinePlot[patientId].push(sampleArray);
                             }
-                        });
+                        });                   
                     });
                 });
-            });
-            console.log(Object.keys(patientDataForLinePlot).length);
-            return patientDataForLinePlot;
+            }); 
         }
+        console.log("patientLinePlotData");
+        return patientDataForLinePlot;  
     }
 
     // testing - to populate the very first time (or everytime the page refreshes)
     @bind
     private initLineVisibility() {
-        if (this.patientLinePlotData) {
+        this.updateRemovingLines;
+        if (this.patientLinePlotData && this.props.renderLinePlot) {
             Object.keys(this.patientLinePlotData).forEach(patientId => {
                 if (!this.visibleLines.has(patientId)) {
                     this.visibleLines.set(patientId, true);
                 }
+                // on re-checking the checkbox, all patientIds should be set to true
+                if (this.visibleLines.has(patientId) && !this.removingLines) {
+                    this.visibleLines.set(patientId, true);
+                }
             });
         }
+        console.log("initLineVisibility");
     }
 
     // testing
     @action.bound
     private toggleLineVisibility(patientId: string) {
+        this.removingLines = true;
         this.visibleLines.set(patientId, false);
+        console.log("toggleLineVisibility");
     }
 
+    // testing
+    @computed get updateRemovingLines() {
+        if (!this.props.renderLinePlot) {
+            this.removingLines = false;
+        }
+        console.log("updateRemovingLines");
+        return null;
+    }
+
+
+    // testing
+    // MobX might not detect deep changes if scatterPlotData is not fully observable or the 
+    // modification is not done in a way MobX can track. When the line is clicked, it might be 
+    // triggering a re-render or state update that forces MobX to recalculate, but the hover 
+    // event doesn't trigger that reactivity.
+    @action.bound
+    isLineHovered(data: any, hovered: boolean) {
+        console.log(this.scatterPlotData);
+        data.forEach((sampleArray: any) => {
+            this.scatterPlotData.map(dataWithAppearance => {
+                dataWithAppearance.data.map(sample => {
+                    if (sample.sampleId === sampleArray.sampleId) {
+                        sample.lineHovered = hovered; // TODO: gets updated when clicked but not when hovered
+                        console.log(`Sample ${sample.sampleId} lineHovered: ${sample.lineHovered}`);
+                        console.log(sample);
+                    }
+                })
+            })
+        })
+        console.log("isLineHovered");
+    }
+
+
     @autobind
-    private getChart() {
-        this.initLineVisibility(); // called when page reloaded
+    private getChart() { // gets called once for each plot (3 times when page loaded)
+        console.log("getChart");
+        this.initLineVisibility(); // testing - called when page reloaded
         return (
             <div
                 ref={this.containerRef}
@@ -900,18 +944,14 @@ export default class BoxScatterPlot<
                                 events={this.boxPlotEvents}
                             />
                             {this.props.renderLinePlot &&
-                                // this.patientLinePlotData &&
+                                this.initLineVisibility &&
                                 Object.keys(this.patientLinePlotData!).map(
                                     patientId =>
                                         this.visibleLines.get(patientId) && (
                                             <VictoryLine
                                                 name="line"
                                                 key={patientId}
-                                                data={
-                                                    this.patientLinePlotData![
-                                                        patientId
-                                                    ]
-                                                }
+                                                data={this.patientLinePlotData![patientId]}
                                                 x={this.scatterPlotX}
                                                 y={this.scatterPlotY}
                                                 style={{
@@ -919,6 +959,7 @@ export default class BoxScatterPlot<
                                                         stroke: 'grey',
                                                         strokeWidth: 2,
                                                         cursor: 'pointer',
+                                                        pointerEvents: 'all',
                                                     },
                                                 }}
                                                 events={[
@@ -926,41 +967,29 @@ export default class BoxScatterPlot<
                                                         target: 'data',
                                                         eventHandlers: {
                                                             onMouseOver: () => {
-                                                                this.lineHovered = true;
                                                                 return [
                                                                     {
-                                                                        target:
-                                                                            'data',
-                                                                        mutation: () => ({
-                                                                            style: {
-                                                                                stroke:
-                                                                                    'black',
-                                                                                strokeWidth: 3,
-                                                                            },
-                                                                        }),
-                                                                    },
-                                                                ];
+                                                                        target: 'data',
+                                                                        mutation: () => {    
+                                                                            this.isLineHovered(this.patientLinePlotData![patientId], true);
+                                                                            return { style: { stroke: 'black', strokeWidth: 3 } }
+                                                                        }
+                                                                    }
+                                                                ]
                                                             },
                                                             onMouseOut: () => {
-                                                                this.lineHovered = false;
                                                                 return [
                                                                     {
-                                                                        target:
-                                                                            'data',
-                                                                        mutation: () => ({
-                                                                            style: {
-                                                                                stroke:
-                                                                                    'grey',
-                                                                                strokeWidth: 2,
-                                                                            },
-                                                                        }),
-                                                                    },
+                                                                        target: 'data',
+                                                                        mutation: () => {
+                                                                            this.isLineHovered(this.patientLinePlotData![patientId], false);
+                                                                            return { style: { stroke: 'grey', strokeWidth: 2 } }
+                                                                        }
+                                                                    }
                                                                 ];
                                                             },
                                                             onClick: () => {
-                                                                this.toggleLineVisibility(
-                                                                    patientId
-                                                                );
+                                                                this.toggleLineVisibility(patientId);
                                                                 return [];
                                                             },
                                                         },
@@ -984,7 +1013,7 @@ export default class BoxScatterPlot<
                                                 dataWithAppearance.fillOpacity,
                                         },
                                     }}
-                                    size={this.scatterPlotSize}
+                                    size={this.scatterPlotSize} // called once everytime scatterplot is rendered
                                     symbol={dataWithAppearance.symbol}
                                     data={dataWithAppearance.data}
                                     events={this.mouseEvents}

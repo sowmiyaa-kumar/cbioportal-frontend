@@ -148,6 +148,7 @@ export function makeScatterPlotSizeFunction<D>(
     highlight?: (d: D) => boolean,
     size?: number | ((d: D, active: Boolean, isHighlighted?: boolean) => number)
 ) {
+    console.log("makeScatterPlotSizeFunction");
     // need to regenerate this function whenever highlight changes in order to trigger immediate Victory rerender
     if (size) {
         if (highlight && typeof size === 'function') {
@@ -162,15 +163,19 @@ export function makeScatterPlotSizeFunction<D>(
     }
 }
 
+// called for each data point
 export function scatterPlotSize(
     d: any,
     active: boolean,
-    isHighlighted: boolean
+    isHighlighted: boolean,
 ) {
+    console.log("scatterPlotSize in PlotUtils");
     if (isHighlighted) {
         return 8;
-    } else if (active) {
+    } else if (active) {   
         return 6;
+    } else if (d.lineHovered) {
+        return 10;
     } else {
         return 4;
     }
