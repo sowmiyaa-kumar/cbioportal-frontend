@@ -146,9 +146,11 @@ export function getJitterForCase(uniqueKey: string) {
 
 export function makeScatterPlotSizeFunction<D>(
     highlight?: (d: D) => boolean,
-    size?: number | ((d: D, active: Boolean, isHighlighted?: boolean) => number)
+    size?:
+        | number
+        | ((d: D, active: Boolean, isHighlighted?: boolean) => number),
+    hoveredLine?: (d: D) => boolean
 ) {
-    console.log("makeScatterPlotSizeFunction");
     // need to regenerate this function whenever highlight changes in order to trigger immediate Victory rerender
     if (size) {
         if (highlight && typeof size === 'function') {
@@ -167,12 +169,15 @@ export function makeScatterPlotSizeFunction<D>(
 export function scatterPlotSize(
     d: any,
     active: boolean,
-    isHighlighted: boolean,
+    isHighlighted: boolean
 ) {
-    console.log("scatterPlotSize in PlotUtils");
+    console.log('scatterPlotSize in PlotUtils');
+    if (d.lineHovered == true) {
+        console.log(d.lineHovered);
+    }
     if (isHighlighted) {
         return 8;
-    } else if (active) {   
+    } else if (active) {
         return 6;
     } else if (d.lineHovered) {
         return 10;

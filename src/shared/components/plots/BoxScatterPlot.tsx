@@ -150,8 +150,9 @@ export default class BoxScatterPlot<
     // testing
     @observable visibleLines = new Map();
     @observable removingLines: boolean = false;
-    @observable lineHovered: boolean = false;
-
+    @observable _lineHovered: [{ sampleId: string; lineHovered: boolean }] = [
+        { sampleId: '', lineHovered: false },
+    ];
     private scatterPlotTooltipHelper: ScatterPlotTooltipHelper = new ScatterPlotTooltipHelper();
 
     constructor(props: any) {
@@ -496,6 +497,16 @@ export default class BoxScatterPlot<
         return 0.2 * this.boxWidth * randomNumber;
     }
 
+    private setPatientHoveredArray() {
+        for (const d of this.props.data) {
+            for (const d2 of d.data) {
+                this._lineHovered.push({
+                    sampleId: d2.sampleId,
+                    lineHovered: false,
+                });
+            }
+        }
+    }
     @bind
     private scatterPlotX(d: IBaseScatterPlotData & D) {
         if (this.props.logScale && this.props.horizontal) {
@@ -536,8 +547,10 @@ export default class BoxScatterPlot<
         }
     }
 
-    @computed get scatterPlotSize() { // called whenever getChart is called (so when page refreshed and when box checked/unchecked)
-        console.log("scatterPlotSize in BSP");
+    @computed get scatterPlotSize() {
+        // called whenever getChart is called (so when page refreshed and when box checked/unchecked)
+        // for testing, if the line is hovered we are going to set highlight to true
+        console.log(this.props.highlight);
         const highlight = this.props.highlight;
         const size = this.props.size;
         // need to regenerate this function whenever highlight changes in order to trigger immediate Victory rerender
@@ -673,6 +686,16 @@ export default class BoxScatterPlot<
         );
     }
 
+    @action.bound checkIfSampleShouldHighlight(sampleId: string): boolean {
+        console.log(sampleId);
+        console.log(
+            this._lineHovered.find(data => data.sampleId === sampleId)!
+                .lineHovered
+        );
+        return this._lineHovered.find(data => data.sampleId === sampleId)!
+            .lineHovered;
+    }
+
     // testing
     @computed get scatterPlotData() {
         let dataAxis: 'x' | 'y' = this.props.horizontal ? 'x' : 'y';
@@ -685,7 +708,9 @@ export default class BoxScatterPlot<
                     Object.assign({}, d, {
                         [dataAxis]: d.value,
                         [categoryAxis]: categoryCoord,
-                        lineHovered: false,
+                        lineHovered: this.checkIfSampleShouldHighlight(
+                            d.sampleId
+                        ),
                     } as { x: number; y: number; lineHovered: boolean })
                 );
             }
@@ -817,15 +842,16 @@ export default class BoxScatterPlot<
                     this.scatterPlotData.forEach(datawithAppearance => {
                         datawithAppearance.data.forEach(sampleArray => {
                             if (sampleIds.includes(sampleArray.sampleId)) {
-                                patientDataForLinePlot[patientId].push(sampleArray);
+                                patientDataForLinePlot[patientId].push(
+                                    sampleArray
+                                );
                             }
-                        });                   
+                        });
                     });
                 });
-            }); 
+            });
         }
-        console.log("patientLinePlotData");
-        return patientDataForLinePlot;  
+        return patientDataForLinePlot;
     }
 
     // testing - to populate the very first time (or everytime the page refreshes)
@@ -843,7 +869,7 @@ export default class BoxScatterPlot<
                 }
             });
         }
-        console.log("initLineVisibility");
+        console.log('initLineVisibility');
     }
 
     // testing
@@ -851,7 +877,7 @@ export default class BoxScatterPlot<
     private toggleLineVisibility(patientId: string) {
         this.removingLines = true;
         this.visibleLines.set(patientId, false);
-        console.log("toggleLineVisibility");
+        console.log('toggleLineVisibility');
     }
 
     // testing
@@ -859,37 +885,30 @@ export default class BoxScatterPlot<
         if (!this.props.renderLinePlot) {
             this.removingLines = false;
         }
-        console.log("updateRemovingLines");
         return null;
     }
 
-
     // testing
-    // MobX might not detect deep changes if scatterPlotData is not fully observable or the 
-    // modification is not done in a way MobX can track. When the line is clicked, it might be 
-    // triggering a re-render or state update that forces MobX to recalculate, but the hover 
+    // MobX might not detect deep changes if scatterPlotData is not fully observable or the
+    // modification is not done in a way MobX can track. When the line is clicked, it might be
+    // triggering a re-render or state update that forces MobX to recalculate, but the hover
     // event doesn't trigger that reactivity.
     @action.bound
     isLineHovered(data: any, hovered: boolean) {
-        console.log(this.scatterPlotData);
         data.forEach((sampleArray: any) => {
-            this.scatterPlotData.map(dataWithAppearance => {
-                dataWithAppearance.data.map(sample => {
-                    if (sample.sampleId === sampleArray.sampleId) {
-                        sample.lineHovered = hovered; // TODO: gets updated when clicked but not when hovered
-                        console.log(`Sample ${sample.sampleId} lineHovered: ${sample.lineHovered}`);
-                        console.log(sample);
-                    }
-                })
-            })
-        })
-        console.log("isLineHovered");
+            this._lineHovered.map(sampleList => {
+                if (sampleList.sampleId === sampleArray.sampleId) {
+                    return (sampleList.lineHovered = hovered); // TODO: gets updated when clicked but not when hovered
+                }
+            });
+        });
+        return this.scatterPlotData;
     }
 
-
     @autobind
-    private getChart() { // gets called once for each plot (3 times when page loaded)
-        console.log("getChart");
+    private getChart() {
+        // gets called once for each plot (3 times when page loaded)
+        this.setPatientHoveredArray();
         this.initLineVisibility(); // testing - called when page reloaded
         return (
             <div
@@ -951,7 +970,11 @@ export default class BoxScatterPlot<
                                             <VictoryLine
                                                 name="line"
                                                 key={patientId}
-                                                data={this.patientLinePlotData![patientId]}
+                                                data={
+                                                    this.patientLinePlotData![
+                                                        patientId
+                                                    ]
+                                                }
                                                 x={this.scatterPlotX}
                                                 y={this.scatterPlotY}
                                                 style={{
@@ -969,27 +992,55 @@ export default class BoxScatterPlot<
                                                             onMouseOver: () => {
                                                                 return [
                                                                     {
-                                                                        target: 'data',
-                                                                        mutation: () => {    
-                                                                            this.isLineHovered(this.patientLinePlotData![patientId], true);
-                                                                            return { style: { stroke: 'black', strokeWidth: 3 } }
-                                                                        }
-                                                                    }
-                                                                ]
+                                                                        target:
+                                                                            'data',
+                                                                        mutation: () => {
+                                                                            this.isLineHovered(
+                                                                                this
+                                                                                    .patientLinePlotData![
+                                                                                    patientId
+                                                                                ],
+                                                                                true
+                                                                            );
+                                                                            return {
+                                                                                style: {
+                                                                                    stroke:
+                                                                                        'black',
+                                                                                    strokeWidth: 3,
+                                                                                },
+                                                                            };
+                                                                        },
+                                                                    },
+                                                                ];
                                                             },
                                                             onMouseOut: () => {
                                                                 return [
                                                                     {
-                                                                        target: 'data',
+                                                                        target:
+                                                                            'data',
                                                                         mutation: () => {
-                                                                            this.isLineHovered(this.patientLinePlotData![patientId], false);
-                                                                            return { style: { stroke: 'grey', strokeWidth: 2 } }
-                                                                        }
-                                                                    }
+                                                                            this.isLineHovered(
+                                                                                this
+                                                                                    .patientLinePlotData![
+                                                                                    patientId
+                                                                                ],
+                                                                                false
+                                                                            );
+                                                                            return {
+                                                                                style: {
+                                                                                    stroke:
+                                                                                        'grey',
+                                                                                    strokeWidth: 2,
+                                                                                },
+                                                                            };
+                                                                        },
+                                                                    },
                                                                 ];
                                                             },
                                                             onClick: () => {
-                                                                this.toggleLineVisibility(patientId);
+                                                                this.toggleLineVisibility(
+                                                                    patientId
+                                                                );
                                                                 return [];
                                                             },
                                                         },
